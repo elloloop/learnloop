@@ -1,0 +1,453 @@
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  Timestamp,
+  QueryConstraint,
+} from 'firebase/firestore';
+import { db, APP_ID } from './firebase';
+import {
+  getCollectionPrefix,
+  getUsersCollectionPath,
+  logDataStoreUsage,
+} from './data-store';
+import {
+  QuestionTemplate,
+  GeneratedQuestion,
+  QuestionReview,
+  StudentAttempt,
+  TestSession,
+  QuestionVariation,
+  CurriculumTag,
+  StudentProgress,
+  User,
+} from '@/types';
+
+// Helper to convert Firestore timestamps
+export const toDate = (timestamp: any): Date => {
+  if (timestamp?.toDate) return timestamp.toDate();
+  if (timestamp instanceof Date) return timestamp;
+  return new Date(timestamp);
+};
+
+// Helper to get collections based on user email (for test/prod routing)
+function getCollections(userEmail?: string | null) {
+  const prefix = getCollectionPrefix(userEmail);
+  const usersPath = getUsersCollectionPath(userEmail);
+  
+  return {
+    templates: () => collection(db, ...prefix, 'templates'),
+    variations: () => collection(db, ...prefix, 'variations'),
+    questions: () => collection(db, ...prefix, 'questions'),
+    reviews: () => collection(db, ...prefix, 'reviews'),
+    attempts: () => collection(db, ...prefix, 'attempts'),
+    sessions: () => collection(db, ...prefix, 'sessions'),
+    curricula: () => collection(db, ...prefix, 'curricula'),
+    progress: () => collection(db, ...prefix, 'progress'),
+    users: () => collection(db, ...usersPath),
+  };
+}
+
+// Default collections (for backward compatibility - uses production)
+const COLLECTIONS = getCollections();
+
+// Template operations
+export const getTemplate = async (
+  id: string,
+  userEmail?: string | null
+): Promise<QuestionTemplate | null> => {
+  const collections = getCollections(userEmail);
+  logDataStoreUsage(userEmail, `getTemplate(${id})`);
+  const docRef = doc(collections.templates(), id);
+  const docSnap = await getDoc(docRef);
+  if (!docSnap.exists()) return null;
+  const data = docSnap.data();
+  return {
+    ...data,
+    id: docSnap.id,
+    createdAt: toDate(data.createdAt),
+    updatedAt: toDate(data.updatedAt),
+  } as QuestionTemplate;
+};
+
+export const getTemplates = async (
+  filters?: { status?: string; createdBy?: string },
+  userEmail?: string | null
+): Promise<QuestionTemplate[]> => {
+  const collections = getCollections(userEmail);
+  logDataStoreUsage(userEmail, 'getTemplates');
+  const constraints: QueryConstraint[] = [orderBy('createdAt', 'desc')];
+  if (filters?.status) {
+    constraints.push(where('status', '==', filters.status));
+  }
+  if (filters?.createdBy) {
+    constraints.push(where('createdBy', '==', filters.createdBy));
+  }
+  const q = query(collections.templates(), ...constraints);
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: toDate(d.data().createdAt),
+    updatedAt: toDate(d.data().updatedAt),
+  })) as QuestionTemplate[];
+};
+
+export const createTemplate = async (
+  template: Omit<QuestionTemplate, 'id' | 'createdAt' | 'updatedAt'>,
+  userEmail?: string | null
+): Promise<string> => {
+  const collections = getCollections(userEmail);
+  logDataStoreUsage(userEmail, 'createTemplate');
+  const now = Timestamp.now();
+  const docRef = await addDoc(collections.templates(), {
+    ...template,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return docRef.id;
+};
+
+export const updateTemplate = async (
+  id: string,
+  updates: Partial<QuestionTemplate>,
+  userEmail?: string | null
+): Promise<void> => {
+  const collections = getCollections(userEmail);
+  logDataStoreUsage(userEmail, `updateTemplate(${id})`);
+  const docRef = doc(collections.templates(), id);
+  await updateDoc(docRef, {
+    ...updates,
+    updatedAt: Timestamp.now(),
+  });
+};
+
+export const deleteTemplate = async (
+  id: string,
+  userEmail?: string | null
+): Promise<void> => {
+  const collections = getCollections(userEmail);
+  logDataStoreUsage(userEmail, `deleteTemplate(${id})`);
+  await deleteDoc(doc(collections.templates(), id));
+};
+
+// Variation operations
+export const getVariations = async (
+  templateId: string
+): Promise<QuestionVariation[]> => {
+  const q = query(
+    COLLECTIONS.variations(),
+    where('templateId', '==', templateId),
+    orderBy('createdAt', 'desc')
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: toDate(d.data().createdAt),
+    approvedAt: d.data().approvedAt ? toDate(d.data().approvedAt) : undefined,
+    rejectedAt: d.data().rejectedAt ? toDate(d.data().rejectedAt) : undefined,
+  })) as QuestionVariation[];
+};
+
+export const createVariation = async (
+  variation: Omit<QuestionVariation, 'id' | 'createdAt'>
+): Promise<string> => {
+  const docRef = await addDoc(COLLECTIONS.variations(), {
+    ...variation,
+    createdAt: Timestamp.now(),
+  });
+  return docRef.id;
+};
+
+export const updateVariation = async (
+  id: string,
+  updates: Partial<QuestionVariation>
+): Promise<void> => {
+  const docRef = doc(COLLECTIONS.variations(), id);
+  await updateDoc(docRef, updates);
+};
+
+export const deleteVariation = async (id: string): Promise<void> => {
+  await deleteDoc(doc(COLLECTIONS.variations(), id));
+};
+
+// Question operations
+export const getQuestions = async (
+  filters?: {
+    templateId?: string;
+    variationId?: string;
+    status?: string;
+    curriculumTagId?: string;
+  }
+): Promise<GeneratedQuestion[]> => {
+  const constraints: QueryConstraint[] = [orderBy('createdAt', 'desc')];
+  if (filters?.templateId) {
+    constraints.push(where('templateId', '==', filters.templateId));
+  }
+  if (filters?.variationId) {
+    constraints.push(where('variationId', '==', filters.variationId));
+  }
+  if (filters?.status) {
+    constraints.push(where('status', '==', filters.status));
+  }
+  const q = query(COLLECTIONS.questions(), ...constraints);
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: toDate(d.data().createdAt),
+    reviewedAt: d.data().reviewedAt ? toDate(d.data().reviewedAt) : undefined,
+    lastAttemptedAt: d.data().lastAttemptedAt
+      ? toDate(d.data().lastAttemptedAt)
+      : undefined,
+  })) as GeneratedQuestion[];
+};
+
+export const createQuestion = async (
+  question: Omit<GeneratedQuestion, 'id' | 'createdAt'>
+): Promise<string> => {
+  const docRef = await addDoc(COLLECTIONS.questions(), {
+    ...question,
+    createdAt: Timestamp.now(),
+  });
+  return docRef.id;
+};
+
+export const updateQuestion = async (
+  id: string,
+  updates: Partial<GeneratedQuestion>
+): Promise<void> => {
+  const docRef = doc(COLLECTIONS.questions(), id);
+  await updateDoc(docRef, updates);
+};
+
+export const deleteQuestion = async (id: string): Promise<void> => {
+  await deleteDoc(doc(COLLECTIONS.questions(), id));
+};
+
+// Review operations
+export const createReview = async (
+  review: Omit<QuestionReview, 'id' | 'createdAt'>
+): Promise<string> => {
+  const docRef = await addDoc(COLLECTIONS.reviews(), {
+    ...review,
+    createdAt: Timestamp.now(),
+  });
+  return docRef.id;
+};
+
+export const getReviews = async (
+  questionId: string
+): Promise<QuestionReview[]> => {
+  const q = query(
+    COLLECTIONS.reviews(),
+    where('questionId', '==', questionId),
+    orderBy('createdAt', 'desc')
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: toDate(d.data().createdAt),
+  })) as QuestionReview[];
+};
+
+// Attempt operations
+export const createAttempt = async (
+  attempt: Omit<StudentAttempt, 'id' | 'createdAt'>
+): Promise<string> => {
+  const docRef = await addDoc(COLLECTIONS.attempts(), {
+    ...attempt,
+    createdAt: Timestamp.now(),
+  });
+  return docRef.id;
+};
+
+export const getStudentAttempts = async (
+  studentId: string,
+  questionId?: string
+): Promise<StudentAttempt[]> => {
+  const constraints: QueryConstraint[] = [orderBy('createdAt', 'desc')];
+  constraints.push(where('studentId', '==', studentId));
+  if (questionId) {
+    constraints.push(where('questionId', '==', questionId));
+  }
+  const q = query(COLLECTIONS.attempts(), ...constraints);
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: toDate(d.data().createdAt),
+  })) as StudentAttempt[];
+};
+
+// Session operations
+export const createSession = async (
+  session: Omit<TestSession, 'id' | 'startedAt'>
+): Promise<string> => {
+  const docRef = await addDoc(COLLECTIONS.sessions(), {
+    ...session,
+    startedAt: Timestamp.now(),
+  });
+  return docRef.id;
+};
+
+export const updateSession = async (
+  id: string,
+  updates: Partial<TestSession>
+): Promise<void> => {
+  const docRef = doc(COLLECTIONS.sessions(), id);
+  await updateDoc(docRef, updates);
+};
+
+// Curriculum operations
+export const getCurricula = async (): Promise<CurriculumTag[]> => {
+  const snapshot = await getDocs(COLLECTIONS.curricula());
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+  })) as CurriculumTag[];
+};
+
+export const createCurriculumTag = async (
+  tag: Omit<CurriculumTag, 'id'>
+): Promise<string> => {
+  const docRef = await addDoc(COLLECTIONS.curricula(), tag);
+  return docRef.id;
+};
+
+// Progress operations
+export const getStudentProgress = async (
+  studentId: string
+): Promise<StudentProgress[]> => {
+  const q = query(
+    COLLECTIONS.progress(),
+    where('studentId', '==', studentId)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+    lastPracticedAt: d.data().lastPracticedAt
+      ? toDate(d.data().lastPracticedAt)
+      : undefined,
+  })) as StudentProgress[];
+};
+
+export const updateProgress = async (
+  studentId: string,
+  curriculumTagId: string,
+  isCorrect: boolean
+): Promise<void> => {
+  const progressRef = doc(
+    COLLECTIONS.progress(),
+    `${studentId}_${curriculumTagId}`
+  );
+  const progressSnap = await getDoc(progressRef);
+
+  if (progressSnap.exists()) {
+    const data = progressSnap.data();
+    const totalAttempts = (data.totalAttempts || 0) + 1;
+    const correctAttempts = (data.correctAttempts || 0) + (isCorrect ? 1 : 0);
+    const accuracy = correctAttempts / totalAttempts;
+
+    let masteryLevel: StudentProgress['masteryLevel'] = 'beginner';
+    if (accuracy >= 0.9 && totalAttempts >= 5) masteryLevel = 'mastered';
+    else if (accuracy >= 0.75 && totalAttempts >= 3) masteryLevel = 'proficient';
+    else if (accuracy >= 0.5) masteryLevel = 'developing';
+
+    await updateDoc(progressRef, {
+      totalAttempts,
+      correctAttempts,
+      masteryLevel,
+      lastPracticedAt: Timestamp.now(),
+    });
+  } else {
+    await addDoc(COLLECTIONS.progress(), {
+      studentId,
+      curriculumTagId,
+      totalAttempts: 1,
+      correctAttempts: isCorrect ? 1 : 0,
+      masteryLevel: 'beginner' as const,
+      lastPracticedAt: Timestamp.now(),
+    });
+  }
+};
+
+// User management operations
+export const getUser = async (userId: string): Promise<User | null> => {
+  if (!db) return null;
+  const docRef = doc(COLLECTIONS.users(), userId);
+  const docSnap = await getDoc(docRef);
+  if (!docSnap.exists()) return null;
+  const data = docSnap.data();
+  return {
+    ...data,
+    id: docSnap.id,
+    createdAt: toDate(data.createdAt),
+    lastLoginAt: data.lastLoginAt ? toDate(data.lastLoginAt) : undefined,
+  } as User;
+};
+
+export const getUsers = async (filters?: { role?: string }): Promise<User[]> => {
+  if (!db) return [];
+  const constraints: QueryConstraint[] = [orderBy('createdAt', 'desc')];
+  if (filters?.role) {
+    constraints.push(where('role', '==', filters.role));
+  }
+  const q = query(COLLECTIONS.users(), ...constraints);
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({
+    ...d.data(),
+    id: d.id,
+    createdAt: toDate(d.data().createdAt),
+    lastLoginAt: d.data().lastLoginAt ? toDate(d.data().lastLoginAt) : undefined,
+  })) as User[];
+};
+
+export const createUser = async (
+  userId: string,
+  userData: Omit<User, 'id' | 'createdAt'>
+): Promise<void> => {
+  if (!db) return;
+  const docRef = doc(COLLECTIONS.users(), userId);
+  await setDoc(docRef, {
+    ...userData,
+    createdAt: Timestamp.now(),
+  });
+};
+
+export const updateUser = async (
+  userId: string,
+  updates: Partial<User>
+): Promise<void> => {
+  if (!db) return;
+  const docRef = doc(COLLECTIONS.users(), userId);
+  await updateDoc(docRef, {
+    ...updates,
+    updatedAt: Timestamp.now(),
+  });
+};
+
+export const updateUserLastLogin = async (userId: string): Promise<void> => {
+  if (!db) return;
+  const docRef = doc(COLLECTIONS.users(), userId);
+  await updateDoc(docRef, {
+    lastLoginAt: Timestamp.now(),
+  });
+};
+
+export const deleteUser = async (userId: string): Promise<void> => {
+  if (!db) return;
+  await deleteDoc(doc(COLLECTIONS.users(), userId));
+};
+
