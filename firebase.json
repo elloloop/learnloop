@@ -9,12 +9,5 @@
     "frameworksBackend": {
       "region": "us-central1"
     }
-  },
-  "functions": [
-    {
-      "source": ".firebase/learnloop-3813b/functions",
-      "codebase": "next",
-      "runtime": "nodejs20"
-    }
-  ]
+  }
 }
