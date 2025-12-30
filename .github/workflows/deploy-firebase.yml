@@ -6,8 +6,8 @@ on:
       - main
       - master
       - ci
-      - 'ci/**'  # Allows any branch starting with ci/
-  workflow_dispatch: # Allows manual triggering
+      - 'ci/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -30,14 +30,25 @@ jobs:
       - name: Build Next.js app
         run: npm run build
         env:
-          # Add any build-time environment variables here
-          # NODE_ENV: production
+          NEXT_PUBLIC_AI_PROVIDER: ${{ secrets.NEXT_PUBLIC_AI_PROVIDER }}
+          NEXT_PUBLIC_GEMINI_API_KEY: ${{ secrets.NEXT_PUBLIC_GEMINI_API_KEY }}
+          NEXT_PUBLIC_GEMINI_MODEL: ${{ secrets.NEXT_PUBLIC_GEMINI_MODEL }}
+          NEXT_PUBLIC_OPENAI_API_KEY: ${{ secrets.NEXT_PUBLIC_OPENAI_API_KEY }}
+          NEXT_PUBLIC_OPENAI_MODEL: ${{ secrets.NEXT_PUBLIC_OPENAI_MODEL }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_APP_ID: ${{ secrets.NEXT_PUBLIC_APP_ID }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
       - name: Deploy to Firebase
-        run: firebase deploy --only hosting,functions --token "${{ secrets.FIREBASE_TOKEN }}"
+        run: firebase deploy --only hosting --force --token "${{ secrets.FIREBASE_TOKEN }}"
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
