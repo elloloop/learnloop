@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
            It has access to a 'values' object (e.g., 'const {a,b} = values; return a+b;').
       - variables: Array of objects [{ name, type ("number"|"text"|"choice"), min, max, precision, options }].
       - concepts: Array of strings.
-      - curriculumTags: Array of objects with { subject, year, topic, subtopic }.
+      - curriculumTags: Array of objects with { subject (Mathetmatics, Science, etc), yearGroup (e.g. "Year 9", "Year 12"), topicPath (Array of strings e.g. ["Algebra", "Linear Equations"]) }.
+           IMPORTANT: For yearGroup, strictly use UK format "Year X" (1-13).
     `;
 
     // Get API keys

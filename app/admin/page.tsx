@@ -29,7 +29,7 @@ import TemplateEditor from '@/components/admin/TemplateEditor';
 export default function AdminPage() {
   const [user, setUser] = useState<any>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [view, setView] = useState<'list' | 'editor' | 'generator'>('list');
+  const [view, setView] = useState<'list' | 'editor' | 'generator' | 'trash'>('list');
   const userEmail = useUserEmail();
   const [templates, setTemplates] = useState<QuestionTemplate[]>([]);
   const [activeTemplate, setActiveTemplate] = useState<QuestionTemplate | null>(
@@ -40,6 +40,31 @@ export default function AdminPage() {
   const [generatedQuestions, setGeneratedQuestions] = useState<
     GeneratedQuestion[]
   >([]);
+
+  // Notification State
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+    action?: { label: string; onClick: () => void };
+  } | null>(null);
+
+  // Confirmation Modal State
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    templateId: string | null;
+    templateTitle: string;
+  }>({ isOpen: false, templateId: null, templateTitle: '' });
+
+  const showNotification = (
+    message: string,
+    type: 'success' | 'error' | 'info' = 'success',
+    action?: { label: string; onClick: () => void }
+  ) => {
+    setNotification({ message, type, action });
+    if (!action) {
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
 
   const router = useRouter();
 
@@ -52,7 +77,7 @@ export default function AdminPage() {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        
+
         try {
           const idToken = await firebaseUser.getIdToken();
           const roleResponse = await fetch('/api/auth/user-role', {
@@ -60,13 +85,13 @@ export default function AdminPage() {
               'Authorization': `Bearer ${idToken}`,
             },
           });
-          
+
           if (roleResponse.ok) {
             const data = await roleResponse.json();
             const roles = data.roles || [data.primaryRole] || [];
             const primaryRole = getPrimaryRole(roles);
             setUserRole(primaryRole);
-            
+
             // Only owner and admin can access this page
             if (!canAccessAdmin(roles)) {
               router.push('/');
@@ -98,11 +123,13 @@ export default function AdminPage() {
     loadTemplates();
   }, [user, userEmail]);
 
-  const loadTemplates = async () => {
+  const loadTemplates = async (showDeleted = false) => {
     try {
-      const response = await fetch(
-        `/api/admin/templates${userEmail ? `?userEmail=${encodeURIComponent(userEmail)}` : ''}`
-      );
+      const params = new URLSearchParams();
+      if (userEmail) params.append('userEmail', userEmail);
+      if (showDeleted) params.append('includeDeleted', 'true');
+
+      const response = await fetch(`/api/admin/templates?${params.toString()}`);
       const data = await response.json();
       setTemplates(data.templates || []);
     } catch (error) {
@@ -120,7 +147,7 @@ export default function AdminPage() {
 
       await fetch(url, {
         method,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'x-user-email': userEmail || '',
         },
@@ -143,19 +170,68 @@ export default function AdminPage() {
     }
   };
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (!confirm('Delete this template?')) return;
+  const handleDeleteClick = (template: QuestionTemplate) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      templateId: template.id,
+      templateTitle: template.title,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmation.templateId) return;
+
+    const id = deleteConfirmation.templateId;
+    setDeleteConfirmation({ isOpen: false, templateId: null, templateTitle: '' }); // Close modal immediately
+
+    // Optimistic UI update: Remove from list immediately
+    setTemplates(prev => prev.filter(t => t.id !== id));
+
     try {
       const url = `/api/admin/templates?id=${id}${userEmail ? `&userEmail=${encodeURIComponent(userEmail)}` : ''}`;
-      await fetch(url, { 
+      await fetch(url, {
         method: 'DELETE',
         headers: {
           'x-user-email': userEmail || '',
         },
       });
-      await loadTemplates();
+      // Verification fetch (in case optimistic was wrong, or to get fresh state)
+      await loadTemplates(view === 'trash');
+
+      showNotification('Template moved to trash', 'success', {
+        label: 'Undo',
+        onClick: () => handleRestoreTemplate(id),
+      });
     } catch (error) {
       console.error('Delete failed:', error);
+      showNotification('Failed to delete template', 'error');
+      // Revert optimistic update on error
+      loadTemplates(view === 'trash');
+    }
+  };
+
+  const handleRestoreTemplate = async (id: string, silent = false) => {
+    // Optimistic UI update: Remove from trash view immediately if we are in trash view
+    // If not in trash view (e.g. undo from toast in library), we might want to add it back to list
+    if (view === 'trash') {
+      setTemplates(prev => prev.filter(t => t.id !== id));
+    }
+
+    try {
+      await fetch('/api/admin/templates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'restore' }),
+      });
+      await loadTemplates(view === 'trash');
+      if (!silent) {
+        setNotification(null); // Clear undo notification if any
+        showNotification('Template restored successfully');
+      }
+    } catch (error) {
+      console.error('Restore failed:', error);
+      showNotification('Failed to restore template', 'error');
+      loadTemplates(view === 'trash');
     }
   };
 
@@ -213,12 +289,12 @@ export default function AdminPage() {
             onClick={() => {
               setView('list');
               setActiveTemplate(null);
+              loadTemplates(false);
             }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-              view === 'list'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === 'list'
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-slate-600 hover:bg-slate-50'
+              }`}
           >
             <Database size={18} />
             Library
@@ -228,14 +304,27 @@ export default function AdminPage() {
               setActiveTemplate(null);
               setView('editor');
             }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-              view === 'editor'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === 'editor'
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-slate-600 hover:bg-slate-50'
+              }`}
           >
             <Code size={18} />
             Template Studio
+          </button>
+          <button
+            onClick={() => {
+              setView('trash');
+              setActiveTemplate(null);
+              loadTemplates(true);
+            }}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${view === 'trash'
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-slate-600 hover:bg-slate-50'
+              }`}
+          >
+            <Trash2 size={18} />
+            Trash
           </button>
           {(userRole === 'owner' || userRole === 'admin') && (
             <Link
@@ -262,6 +351,7 @@ export default function AdminPage() {
             </button>
             <h2 className="text-lg font-semibold text-slate-800">
               {view === 'list' && 'Template Library'}
+              {view === 'trash' && 'Trash (Soft Deleted)'}
               {view === 'editor' && (activeTemplate ? 'Edit Template' : 'New Template')}
               {view === 'generator' && 'Question Factory'}
             </h2>
@@ -281,23 +371,27 @@ export default function AdminPage() {
 
         {/* View Content */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8">
-          {/* LIST VIEW */}
-          {view === 'list' && (
+          {/* LIST VIEW & TRASH VIEW */}
+          {(view === 'list' || view === 'trash') && (
             <div className="max-w-5xl mx-auto">
               <div className="flex justify-between items-center mb-6">
                 <p className="text-slate-500">
-                  Select a template to generate questions or create a new one.
+                  {view === 'trash'
+                    ? 'Restore deleted templates or view archived items.'
+                    : 'Select a template to generate questions or create a new one.'}
                 </p>
-                <button
-                  onClick={() => {
-                    setActiveTemplate(null);
-                    setView('editor');
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
-                >
-                  <Plus size={16} />
-                  New Template
-                </button>
+                {view === 'list' && (
+                  <button
+                    onClick={() => {
+                      setActiveTemplate(null);
+                      setView('editor');
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                  >
+                    <Plus size={16} />
+                    New Template
+                  </button>
+                )}
               </div>
 
               {templates.length === 0 ? (
@@ -321,10 +415,11 @@ export default function AdminPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {templates.map((t) => (
+                  {templates.filter(t => view === 'trash' ? t.deletedAt : !t.deletedAt).map((t) => (
                     <div
                       key={t.id}
-                      className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer group relative"
+                      className={`bg-white border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer group relative ${view === 'trash' ? 'border-red-100 bg-red-50/10' : 'border-slate-200'
+                        }`}
                     >
                       <div
                         onClick={() => {
@@ -357,15 +452,31 @@ export default function AdminPage() {
                           ))}
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTemplate(t.id);
-                        }}
-                        className="absolute top-3 right-3 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {view === 'trash' ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRestoreTemplate(t.id);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                            title="Restore"
+                          >
+                            <RefreshCw size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteClick(t);
+                            }}
+                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -515,7 +626,62 @@ export default function AdminPage() {
           )}
         </div>
       </div>
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed bottom-6 right-6 z-50 animate-fade-in-up">
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border ${notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+            notification.type === 'success' ? 'bg-slate-800 border-slate-700 text-white' :
+              'bg-white border-slate-200 text-slate-800'
+            }`}>
+            <span>{notification.message}</span>
+            {notification.action && (
+              <button
+                onClick={notification.action.onClick}
+                className="text-sm font-bold text-indigo-400 hover:text-indigo-300 ml-2 border-l border-slate-600 pl-3"
+              >
+                {notification.action.label}
+              </button>
+            )}
+            {!notification.action && (
+              <button onClick={() => setNotification(null)} className="ml-2 opacity-70 hover:opacity-100">
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {deleteConfirmation.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-scale-in border border-slate-100">
+            <div className="flex flex-col items-center text-center mb-6">
+              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4">
+                <Trash2 size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Delete Template?</h3>
+              <p className="text-slate-500 text-sm">
+                Are you sure you want to delete <span className="font-semibold text-slate-700">"{deleteConfirmation.templateTitle}"</span>?
+                The template will be moved to the trash and can be restored later.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmation({ isOpen: false, templateId: null, templateTitle: '' })}
+                className="flex-1 px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="flex-1 px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors shadow-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

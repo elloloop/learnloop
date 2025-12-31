@@ -165,6 +165,7 @@ export const getTemplate = async (
 export const getTemplates = async (filters?: {
   status?: string;
   createdBy?: string;
+  includeDeleted?: boolean;
 }): Promise<QuestionTemplate[]> => {
   try {
     const collection = await getCollection<QuestionTemplate>(
@@ -173,6 +174,7 @@ export const getTemplates = async (filters?: {
     const query: any = {};
     if (filters?.status) query.status = filters.status;
     if (filters?.createdBy) query.createdBy = filters.createdBy;
+    if (!filters?.includeDeleted) query.deletedAt = { $exists: false };
 
     const docs = await collection
       .find(query)
@@ -221,10 +223,23 @@ export const updateTemplate = async (
       COLLECTIONS.templates
     );
     const { id: _, ...updateData } = updates;
-    await collection.updateOne(
+
+    // Try with string ID first
+    let result = await collection.updateOne(
       { _id: id } as any,
       { $set: { ...updateData, updatedAt: new Date() } }
     );
+
+    // If no document matched, try with ObjectId
+    if (result.matchedCount === 0) {
+      const { ObjectId } = await import('mongodb');
+      if (ObjectId.isValid(id)) {
+        await collection.updateOne(
+          { _id: new ObjectId(id) } as any,
+          { $set: { ...updateData, updatedAt: new Date() } }
+        );
+      }
+    }
   } catch (error) {
     console.error('Error updating template:', error);
     throw error;
@@ -236,9 +251,53 @@ export const deleteTemplate = async (id: string): Promise<void> => {
     const collection = await getCollection<QuestionTemplate>(
       COLLECTIONS.templates
     );
-    await collection.deleteOne({ _id: id } as any);
+
+    // Try with string ID first
+    let result = await collection.updateOne(
+      { _id: id } as any,
+      { $set: { deletedAt: new Date() } }
+    );
+
+    // If no document matched, try with ObjectId
+    if (result.matchedCount === 0) {
+      const { ObjectId } = await import('mongodb');
+      if (ObjectId.isValid(id)) {
+        await collection.updateOne(
+          { _id: new ObjectId(id) } as any,
+          { $set: { deletedAt: new Date() } }
+        );
+      }
+    }
   } catch (error) {
     console.error('Error deleting template:', error);
+    throw error;
+  }
+};
+
+export const restoreTemplate = async (id: string): Promise<void> => {
+  try {
+    const collection = await getCollection<QuestionTemplate>(
+      COLLECTIONS.templates
+    );
+
+    // Try with string ID first
+    let result = await collection.updateOne(
+      { _id: id } as any,
+      { $unset: { deletedAt: "" } }
+    );
+
+    // If no document matched, try with ObjectId
+    if (result.matchedCount === 0) {
+      const { ObjectId } = await import('mongodb');
+      if (ObjectId.isValid(id)) {
+        await collection.updateOne(
+          { _id: new ObjectId(id) } as any,
+          { $unset: { deletedAt: "" } }
+        );
+      }
+    }
+  } catch (error) {
+    console.error('Error restoring template:', error);
     throw error;
   }
 };
@@ -297,8 +356,20 @@ export const updateVariation = async (
     const collection = await getCollection<QuestionVariation>(
       COLLECTIONS.variations
     );
+
     const { id: _, ...updateData } = updates;
-    await collection.updateOne({ _id: id } as any, { $set: updateData });
+
+    let result = await collection.updateOne({ _id: id } as any, { $set: updateData });
+
+    if (result.matchedCount === 0) {
+      const { ObjectId } = await import('mongodb');
+      if (ObjectId.isValid(id)) {
+        await collection.updateOne(
+          { _id: new ObjectId(id) } as any,
+          { $set: updateData }
+        );
+      }
+    }
   } catch (error) {
     console.error('Error updating variation:', error);
     throw error;
@@ -310,7 +381,14 @@ export const deleteVariation = async (id: string): Promise<void> => {
     const collection = await getCollection<QuestionVariation>(
       COLLECTIONS.variations
     );
-    await collection.deleteOne({ _id: id } as any);
+    let result = await collection.deleteOne({ _id: id } as any);
+
+    if (result.deletedCount === 0) {
+      const { ObjectId } = await import('mongodb');
+      if (ObjectId.isValid(id)) {
+        await collection.deleteOne({ _id: new ObjectId(id) } as any);
+      }
+    }
   } catch (error) {
     console.error('Error deleting variation:', error);
     throw error;

@@ -23,7 +23,7 @@ export type UserRole = 'owner' | 'admin' | 'reviewer' | 'parent' | 'child' | 'st
 /**
  * Authentication method for child accounts
  */
-export type ChildAuthMethod = 
+export type ChildAuthMethod =
   | 'email'           // Child has email-based login
   | 'username_parent' // Username + password set by parent
   | 'username_child'; // Username only, child sets password on first login
@@ -48,6 +48,7 @@ export interface QuestionTemplate {
   curriculumTags: CurriculumTag[];
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date | string; // Soft delete timestamp
   createdBy: string;
   status: 'draft' | 'active' | 'archived';
 }
@@ -117,15 +118,14 @@ export interface TestSession {
 export interface CurriculumTag {
   id: string;
   name: string;
-  subject: 'math' | 'english';
-  year: number; // 1-6 for UK Year 6 equivalent
-  topic: string;
-  subtopic?: string;
+  subject: 'math' | 'english' | 'science' | 'computing' | 'history' | 'geography' | 'languages' | 'art' | 'music' | 'pe' | 'other';
+  yearGroup: string; // e.g., "Year 9", "Year 12"
+  topicPath: string[]; // e.g. ["Algebra", "Linear Equations", "One Variable"]
   // Mappings to other curricula
   mappings: {
     uk?: {
       keyStage?: string;
-      year?: number;
+      year?: number; // Numeric year for sorting
       topic?: string;
     };
     us?: {
@@ -152,19 +152,19 @@ export interface User {
   createdAt: Date;
   lastLoginAt?: Date;
   status?: 'pending' | 'active' | 'suspended';
-  
+
   // Student onboarding
   studentOnboardedAt?: Date; // When user completed student onboarding
-  
+
   // Parent-Child relationship
   parentId?: string;        // For child accounts - links to parent
   childIds?: string[];      // For parent accounts - list of children
-  
+
   // Child-specific fields
   authMethod?: ChildAuthMethod;  // How the child authenticates
   passwordSetByParent?: boolean; // True if parent set password, child can change on first login
   requirePasswordChange?: boolean; // True if child needs to set password on first login
-  
+
   // Backward compatibility - will be migrated to roles[]
   role?: UserRole;          // @deprecated - use roles[] instead
 }
@@ -179,15 +179,15 @@ export interface RolePermissions {
   canManageCurriculum: boolean;
   canManageUsers: boolean;
   canDeleteOwner: boolean;
-  
+
   // Review capabilities
   canReviewQuestions: boolean;
-  
+
   // Parent capabilities
   canCreateChildren: boolean;
   canViewChildProgress: boolean;
   canResetChildPassword: boolean;
-  
+
   // Student capabilities - requires 'student' role
   canPractice: boolean;
   canViewOwnProgress: boolean;
@@ -327,7 +327,7 @@ export const ROLE_HIERARCHY: Record<UserRole, number> = {
  */
 export function getPrimaryRole(roles: UserRole[]): UserRole {
   if (!roles || roles.length === 0) return 'student';
-  
+
   return roles.reduce((highest, current) => {
     return (ROLE_HIERARCHY[current] || 0) > (ROLE_HIERARCHY[highest] || 0)
       ? current

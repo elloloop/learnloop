@@ -41,7 +41,14 @@ export default function TemplateEditor({
     answerFunction: template?.answerFunction || '',
     variables: template?.variables || [],
     concepts: template?.concepts || [],
-    curriculumTags: template?.curriculumTags || [],
+    curriculumTags: template?.curriculumTags || [{
+      id: crypto.randomUUID(),
+      name: 'Default',
+      subject: 'math',
+      yearGroup: 'Year 9',
+      topicPath: [],
+      mappings: {}
+    }],
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -120,9 +127,18 @@ export default function TemplateEditor({
           answerFunction: data.structure.answerFunction || '',
           variables: data.structure.variables || [],
           concepts: data.structure.concepts || [],
-          curriculumTags: data.structure.curriculumTags || [],
+          curriculumTags: data.structure.curriculumTags && data.structure.curriculumTags.length > 0
+            ? data.structure.curriculumTags
+            : [{
+              id: crypto.randomUUID(),
+              name: 'Generated',
+              subject: 'math',
+              yearGroup: 'Year 9',
+              topicPath: [],
+              mappings: {}
+            }],
         });
-        
+
         // Show which model was used
         if (data.modelUsed) {
           setLoadingStatus(`✓ Generated using ${data.provider}/${data.modelUsed} (Quality: ${data.qualityScore || 'N/A'}/10)`);
@@ -170,11 +186,10 @@ export default function TemplateEditor({
         <div className="flex flex-col md:flex-row gap-4">
           {/* Image Capture & Upload Area */}
           <div
-            className={`md:w-36 h-28 rounded-lg border-2 border-dashed relative overflow-hidden flex flex-col items-center justify-center transition-colors ${
-              editorImage || showCamera
-                ? 'border-indigo-300 bg-black'
-                : 'border-indigo-200 bg-white hover:bg-indigo-50'
-            }`}
+            className={`md:w-36 h-28 rounded-lg border-2 border-dashed relative overflow-hidden flex flex-col items-center justify-center transition-colors ${editorImage || showCamera
+              ? 'border-indigo-300 bg-black'
+              : 'border-indigo-200 bg-white hover:bg-indigo-50'
+              }`}
           >
             <input
               ref={fileInputRef}
@@ -280,7 +295,7 @@ export default function TemplateEditor({
       {/* Manual Edit Section */}
       <div className="flex flex-col md:flex-row h-[600px]">
         {/* Left: General Info */}
-        <div className="w-full md:w-1/2 p-6 border-b md:border-b-0 md:border-r border-slate-200 overflow-y-auto">
+        <div className="w-full md:w-2/4 p-6 border-b md:border-b-0 md:border-r border-slate-200 overflow-y-auto">
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -410,8 +425,106 @@ export default function TemplateEditor({
           </div>
         </div>
 
+        {/* Middle: Curriculum Metadata */}
+        <div className="w-full md:w-1/4 p-6 border-b md:border-b-0 md:border-r border-slate-200 overflow-y-auto bg-slate-50/50">
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 block">
+            Curriculum Tags
+          </label>
+
+          {editorData.curriculumTags?.map((tag, i) => (
+            <div key={i} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Subject</label>
+                <select
+                  value={tag.subject}
+                  onChange={(e) => {
+                    const newTags = [...(editorData.curriculumTags || [])];
+                    newTags[i] = { ...newTags[i], subject: e.target.value as any };
+                    setEditorData({ ...editorData, curriculumTags: newTags });
+                  }}
+                  className="w-full text-sm border-slate-200 rounded-md focus:border-indigo-500 focus:ring-0"
+                >
+                  <option value="math">Mathematics</option>
+                  <option value="english">English</option>
+                  <option value="science">Science</option>
+                  <option value="computing">Computing</option>
+                  <option value="history">History</option>
+                  <option value="geography">Geography</option>
+                  <option value="languages">Languages</option>
+                  <option value="art">Art & Design</option>
+                  <option value="music">Music</option>
+                  <option value="pe">PE</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Year Group (UK)</label>
+                <select
+                  value={tag.yearGroup || 'Year 1'}
+                  onChange={(e) => {
+                    const newTags = [...(editorData.curriculumTags || [])];
+                    newTags[i] = { ...newTags[i], yearGroup: e.target.value };
+                    setEditorData({ ...editorData, curriculumTags: newTags });
+                  }}
+                  className="w-full text-sm border-slate-200 rounded-md focus:border-indigo-500 focus:ring-0"
+                >
+                  {Array.from({ length: 13 }, (_, y) => `Year ${y + 1}`).map((yg) => (
+                    <option key={yg} value={yg}>{yg}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Topic Hierarchy</label>
+                <div className="space-y-2">
+                  {(tag.topicPath || []).map((level, levelIdx) => (
+                    <div key={levelIdx} className="flex gap-1 ml-2 border-l-2 border-slate-100 pl-2">
+                      <input
+                        type="text"
+                        value={level}
+                        onChange={(e) => {
+                          const newTags = [...(editorData.curriculumTags || [])];
+                          const newPath = [...(tag.topicPath || [])];
+                          newPath[levelIdx] = e.target.value;
+                          newTags[i] = { ...newTags[i], topicPath: newPath };
+                          setEditorData({ ...editorData, curriculumTags: newTags });
+                        }}
+                        className="flex-1 text-sm border-slate-200 rounded-md px-2 py-1"
+                        placeholder={`Level ${levelIdx + 1}`}
+                      />
+                      <button
+                        onClick={() => {
+                          const newTags = [...(editorData.curriculumTags || [])];
+                          const newPath = (tag.topicPath || []).filter((_, idx) => idx !== levelIdx);
+                          newTags[i] = { ...newTags[i], topicPath: newPath };
+                          setEditorData({ ...editorData, curriculumTags: newTags });
+                        }}
+                        className="text-slate-400 hover:text-red-500 px-1"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => {
+                      const newTags = [...(editorData.curriculumTags || [])];
+                      const newPath = [...(tag.topicPath || []), ''];
+                      newTags[i] = { ...newTags[i], topicPath: newPath };
+                      setEditorData({ ...editorData, curriculumTags: newTags });
+                    }}
+                    className="ml-2 text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                  >
+                    <Plus size={12} /> Add Sub-level
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Right: Logic & Variables */}
-        <div className="w-full md:w-1/2 flex flex-col h-full border-l border-slate-200">
+        <div className="w-full md:w-1/4 flex flex-col h-full border-l border-slate-200">
           {/* Answer Function Editor */}
           <div className="p-6 border-b border-slate-200 bg-slate-900 text-slate-200 h-1/3 min-h-[200px] flex flex-col">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -611,7 +724,7 @@ export default function TemplateEditor({
           Save Template
         </button>
       </div>
-    </div>
+    </div >
   );
 }
 
