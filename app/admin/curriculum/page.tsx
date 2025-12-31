@@ -25,9 +25,8 @@ export default function CurriculumPage() {
   const [formData, setFormData] = useState<Partial<CurriculumTag>>({
     name: '',
     subject: 'math',
-    year: 1,
-    topic: '',
-    subtopic: '',
+    yearGroup: 'Year 1',
+    topicPath: [],
     mappings: {
       uk: {},
       us: {},
@@ -89,9 +88,8 @@ export default function CurriculumPage() {
       setFormData({
         name: '',
         subject: 'math',
-        year: 1,
-        topic: '',
-        subtopic: '',
+        yearGroup: 'Year 1',
+        topicPath: [],
         mappings: {
           uk: {},
           us: {},
@@ -146,9 +144,8 @@ export default function CurriculumPage() {
                 setFormData({
                   name: '',
                   subject: 'math',
-                  year: 1,
-                  topic: '',
-                  subtopic: '',
+                  yearGroup: 'Year 1',
+                  topicPath: [],
                   mappings: {
                     uk: {},
                     us: {},
@@ -206,17 +203,16 @@ export default function CurriculumPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Year (1-6)
+                    Year Group
                   </label>
                   <input
-                    type="number"
-                    min="1"
-                    max="6"
-                    value={formData.year || 1}
+                    type="text"
+                    placeholder="e.g., Year 9, Year 12"
+                    value={formData.yearGroup || ''}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        year: parseInt(e.target.value),
+                        yearGroup: e.target.value,
                       })
                     }
                     className="w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:border-indigo-500"
@@ -225,13 +221,17 @@ export default function CurriculumPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Topic
+                    Topic Path (comma-separated)
                   </label>
                   <input
                     type="text"
-                    value={formData.topic || ''}
+                    placeholder="e.g., Algebra, Linear Equations, One Variable"
+                    value={formData.topicPath?.join(', ') || ''}
                     onChange={(e) =>
-                      setFormData({ ...formData, topic: e.target.value })
+                      setFormData({
+                        ...formData,
+                        topicPath: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                      })
                     }
                     className="w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:border-indigo-500"
                   />
@@ -396,7 +396,7 @@ export default function CurriculumPage() {
                 </button>
                 <button
                   onClick={handleSave}
-                  disabled={loading || !formData.name || !formData.topic}
+                  disabled={loading || !formData.name || !formData.topicPath?.length}
                   className="bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
                   <Save size={16} />
@@ -428,12 +428,11 @@ export default function CurriculumPage() {
                           {tag.subject}
                         </span>
                         <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-xs rounded-full">
-                          Year {tag.year}
+                          {tag.yearGroup}
                         </span>
                       </div>
                       <p className="text-sm text-slate-600 mb-2">
-                        {tag.topic}
-                        {tag.subtopic && ` • ${tag.subtopic}`}
+                        {tag.topicPath?.join(' • ') || 'No topic path'}
                       </p>
                       <div className="flex gap-4 text-xs text-slate-500">
                         {tag.mappings?.uk && (

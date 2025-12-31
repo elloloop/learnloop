@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
           curriculumTags.some(
             (ct: CurriculumTag) =>
               ct.subject === tag.subject &&
-              ct.year === tag.year &&
-              ct.topic === tag.topic
+              ct.yearGroup === tag.yearGroup &&
+              ct.topicPath?.[0] === tag.topicPath?.[0]
           )
         )
       );
